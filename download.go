@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 const (
@@ -86,29 +88,58 @@ type downloadGoroutineData struct {
 }
 
 func parallelDownload(url string, fd *os.File, fileRange FileRange) {
+
 	needDownloadDatas := getGoroutineDatas(fileRange)
-	downloadChain := make(chan downloadGoroutineData, len(needDownloadDatas))
+	downloadChain := make(chan downloadGoroutineData, DownloadThreadNum)
 	downloadedChain := make(chan downloadGoroutineData, DownloadThreadNum)
 
-	for i := 0; i < len(needDownloadDatas); i++ {
-		downloadChain <- needDownloadDatas[i]
-	}
+	downloadCompleteWait := sync.WaitGroup{}
+	downloadCompleteWait.Add(len(needDownloadDatas))
 
-	for i := 0; i < DownloadThreadNum; i++ {
-		go func() {
-			data := <-downloadChain
-			data, _ = downloadGoroutine(url, data)
-			downloadedChain <- data
-		}()
-	}
+	fdmu := sync.Mutex{}
 
-	for i := 0; i < DownloadThreadNum; i++ {
-		go func() {
-			data := <-downloadedChain
-			fd.Seek(data.begin, 0)
-			fd.Write(data.content)
-		}()
-	}
+	// 利用通道将同时发起的下载goroutine最多只有 DownloadThreadNum 个
+	go func() {
+		for i := 0; i < len(needDownloadDatas); i++ {
+			downloadChain <- needDownloadDatas[i]
+		}
+	}()
+
+	// 持续的将处于通道中的下载任务取出进行处理
+	go func() {
+		for {
+			downloadTask := <-downloadChain
+			go func() {
+				downloadTask, err := downloadGoroutine(url, downloadTask)
+				if err != nil {
+					panic(err.Error())
+				}
+				downloadedChain <- downloadTask
+			}()
+		}
+	}()
+
+	go func() {
+		for {
+			downloadedTask := <-downloadedChain
+			go func() {
+				fdmu.Lock()
+				offset, err := fd.Seek(downloadedTask.begin, 0)
+				if err != nil {
+					panic(err.Error())
+				}
+				n, err := fd.Write(downloadedTask.content)
+				if err != nil {
+					panic(err.Error())
+				}
+				fmt.Printf("begin:%d end:%d content-length:%d offset:%d success write:%d bytes\n", downloadedTask.begin, downloadedTask.end, len(downloadedTask.content), offset, n)
+				downloadCompleteWait.Done()
+				fdmu.Unlock()
+			}()
+		}
+	}()
+
+	downloadCompleteWait.Wait()
 }
 
 func downloadGoroutine(url string, data downloadGoroutineData) (downloadGoroutineData, error) {
@@ -118,19 +149,19 @@ func downloadGoroutine(url string, data downloadGoroutineData) (downloadGoroutin
 		return data, errors.New(fmt.Sprintf("occur error while create http client:%s", err.Error()))
 	}
 
-	req.Header.Add("Range", fmt.Sprintf("%d-%d", data.begin, data.end))
+	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", data.begin, data.end))
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return data, errors.New(fmt.Sprintf("occur error while download data:%s", err.Error()))
 	}
 
-	n, err := resp.Body.Read(data.content)
+	data.content, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return data, errors.New(fmt.Sprintf("occur error while read data from response:%s", err.Error()))
 	}
 
-	if n != int(data.end-data.begin+1) {
+	if len(data.content) != int(data.end-data.begin+1) {
 		return data, errors.New("the length of download data is not same with except")
 	}
 
@@ -147,15 +178,15 @@ func getGoroutineDatas(fileRange FileRange) []downloadGoroutineData {
 
 	pSize := fileRange.FileContentLength / DownloadThreadNum
 
-	for i = 0; i <= DownloadThreadNum; i += pSize {
+	for i = 0; i <= DownloadThreadNum; i++ {
 		if i == DownloadThreadNum {
-			begin = i
-			end = fileRange.FileContentLength
+			begin = i * pSize
+			end = fileRange.FileContentLength - 1
 		} else {
-			begin = i
+			begin = i * pSize
 			end = begin + pSize - 1
 		}
-		data := downloadGoroutineData{begin, end, false, make([]byte, end-begin+1)}
+		data := downloadGoroutineData{begin, end, false, []byte{}}
 		downloadGoroutineDatas = append(downloadGoroutineDatas, data)
 	}
 
