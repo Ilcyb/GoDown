@@ -37,13 +37,18 @@ func Download(resUrl string) (string, error) {
 		return "", err
 	}
 
-	file, err := createFileWithSize(getFileNameFromURL(resUrl), fileRange.FileContentLength)
+	fileName := getFileNameFromURL(resUrl)
+	file, err := createFileWithSize(fileName, fileRange.FileContentLength)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
 
-	parallelDownload(resUrl, file, fileRange)
+	displaySize := GetDisplaySizeUnit(fileRange.FileContentLength)
+	processBarData := DownloadProcessBar{fileName, displaySize, fileRange.FileContentLength, 0, "=", 50}
+	go DisplayProcessBar(&processBarData)
+
+	parallelDownload(resUrl, file, fileRange, &processBarData)
 
 	//resp, err := http.Get(resUrl)
 	//if err != nil {
@@ -90,7 +95,7 @@ type downloadGoroutineData struct {
 	content  []byte
 }
 
-func parallelDownload(resUrl string, fd *os.File, fileRange FileRange) {
+func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *DownloadProcessBar) {
 
 	needDownloadDatas := getGoroutineDatas(fileRange)
 	downloadChain := make(chan downloadGoroutineData, DownloadThreadNum)
@@ -127,15 +132,15 @@ func parallelDownload(resUrl string, fd *os.File, fileRange FileRange) {
 			downloadedTask := <-downloadedChain
 			go func() {
 				fdmu.Lock()
-				offset, err := fd.Seek(downloadedTask.begin, 0)
+				_, err := fd.Seek(downloadedTask.begin, 0)
 				if err != nil {
 					panic(err.Error())
 				}
-				n, err := fd.Write(downloadedTask.content)
+				_, err = fd.Write(downloadedTask.content)
 				if err != nil {
 					panic(err.Error())
 				}
-				fmt.Printf("begin:%d end:%d content-length:%d offset:%d success write:%d bytes\n", downloadedTask.begin, downloadedTask.end, len(downloadedTask.content), offset, n)
+				(*downloadProcessBar).CompleteSize += int64(len(downloadedTask.content))
 				downloadCompleteWait.Done()
 				fdmu.Unlock()
 			}()

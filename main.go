@@ -29,9 +29,6 @@ func parseArgs() DownloadArguments {
 func main() {
 	args := parseArgs()
 
-	//GetFileRange(args.url)
-	//os.Exit(0)
-
 	fileName, err := Download(args.url)
 	if err != nil {
 		fmt.Println(err)
