@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -18,31 +19,33 @@ const (
 	DownloadThreadNum = 8
 )
 
-func getFileNameFromURL(url string) string {
-	hasSlash := strings.Contains(url, "/")
+func getFileNameFromURL(resUrl string) string {
+	resUrl, _ = url.QueryUnescape(resUrl)
+	hasSlash := strings.Contains(resUrl, "/")
 	if !hasSlash {
-		return url
+		return resUrl
 	}
-	urlSegments := strings.Split(url, "/")
+	urlSegments := strings.Split(resUrl, "/")
 	fileName := urlSegments[len(urlSegments)-1]
+
 	return fileName
 }
 
-func Download(url string) (string, error) {
-	fileRange, err := GetFileRange(url)
+func Download(resUrl string) (string, error) {
+	fileRange, err := GetFileRange(resUrl)
 	if err != nil {
 		return "", err
 	}
 
-	file, err := createFileWithSize(getFileNameFromURL(url), fileRange.FileContentLength)
+	file, err := createFileWithSize(getFileNameFromURL(resUrl), fileRange.FileContentLength)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
 
-	parallelDownload(url, file, fileRange)
+	parallelDownload(resUrl, file, fileRange)
 
-	//resp, err := http.Get(url)
+	//resp, err := http.Get(resUrl)
 	//if err != nil {
 	//	return "", err
 	//}
@@ -87,7 +90,7 @@ type downloadGoroutineData struct {
 	content  []byte
 }
 
-func parallelDownload(url string, fd *os.File, fileRange FileRange) {
+func parallelDownload(resUrl string, fd *os.File, fileRange FileRange) {
 
 	needDownloadDatas := getGoroutineDatas(fileRange)
 	downloadChain := make(chan downloadGoroutineData, DownloadThreadNum)
@@ -110,7 +113,7 @@ func parallelDownload(url string, fd *os.File, fileRange FileRange) {
 		for {
 			downloadTask := <-downloadChain
 			go func() {
-				downloadTask, err := downloadGoroutine(url, downloadTask)
+				downloadTask, err := downloadGoroutine(resUrl, downloadTask)
 				if err != nil {
 					panic(err.Error())
 				}
@@ -142,9 +145,9 @@ func parallelDownload(url string, fd *os.File, fileRange FileRange) {
 	downloadCompleteWait.Wait()
 }
 
-func downloadGoroutine(url string, data downloadGoroutineData) (downloadGoroutineData, error) {
+func downloadGoroutine(resUrl string, data downloadGoroutineData) (downloadGoroutineData, error) {
 	client := http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", resUrl, nil)
 	if err != nil {
 		return data, errors.New(fmt.Sprintf("occur error while create http client:%s", err.Error()))
 	}
