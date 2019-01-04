@@ -14,10 +14,16 @@ import (
 
 const (
 	//MaxMemoryUsage 最大内存占用
-	MaxMemoryUsage = 1024 * 1024 * 100
+	MaxMemoryUsage = 10 * MibBytes
 
 	//并发下载数量
-	DownloadThreadNum = 8
+	DownloadThreadNum = 10
+
+	//每个 download goroutine 所需要下载的大小
+	DownloadSizePerThread = MibBytes
+
+	VerySmallFileSize = 5 * MibBytes
+	SmallFileSize     = 10 * MibBytes
 
 	HttpDownload                  = 0
 	HttpSmallFileParallelDownload = 1
@@ -60,11 +66,11 @@ func Download(resUrl string) (string, error) {
 
 	switch downloadStrategy {
 	case HttpDownload:
-		parallelDownload(resUrl, file, fileRange, &processBarData)
+		parallelDownload(resUrl, file, fileRange, &processBarData, downloadStrategy)
 	case HttpSmallFileParallelDownload:
-		parallelDownload(resUrl, file, fileRange, &processBarData)
+		parallelDownload(resUrl, file, fileRange, &processBarData, downloadStrategy)
 	case HttpLargeFileParallelDownload:
-		parallelDownload(resUrl, file, fileRange, &processBarData)
+		parallelDownload(resUrl, file, fileRange, &processBarData, downloadStrategy)
 	}
 
 	//resp, err := http.Get(resUrl)
@@ -112,9 +118,9 @@ type downloadGoroutineData struct {
 	content  []byte
 }
 
-func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *DownloadProcessBar) {
+func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *DownloadProcessBar, downloadStrategy int) {
 
-	needDownloadDatas := getGoroutineDatas(fileRange)
+	needDownloadDatas := getGoroutineDatas(fileRange, downloadStrategy)
 	downloadChain := make(chan downloadGoroutineData, DownloadThreadNum)
 	downloadedChain := make(chan downloadGoroutineData, DownloadThreadNum)
 
@@ -196,35 +202,51 @@ func downloadGoroutine(resUrl string, data downloadGoroutineData) (downloadGorou
 	return data, nil
 }
 
-func getGoroutineDatas(fileRange FileRange) []downloadGoroutineData {
+func getGoroutineDatas(fileRange FileRange, httpDownLoadStrategy int) []downloadGoroutineData {
 	var downloadGoroutineDatas []downloadGoroutineData
 	var begin int64
 	var end int64
 	var i int64
 
-	pSize := fileRange.FileContentLength / DownloadThreadNum
-
-	for i = 0; i <= DownloadThreadNum; i++ {
-		if i == DownloadThreadNum {
-			begin = i * pSize
-			end = fileRange.FileContentLength - 1
-		} else {
-			begin = i * pSize
-			end = begin + pSize - 1
+	if httpDownLoadStrategy == HttpSmallFileParallelDownload {
+		pSize := fileRange.FileContentLength / DownloadThreadNum
+		for i = 0; i <= DownloadThreadNum; i++ {
+			if i == DownloadThreadNum {
+				begin = i * pSize
+				end = fileRange.FileContentLength - 1
+			} else {
+				begin = i * pSize
+				end = begin + pSize - 1
+			}
+			data := downloadGoroutineData{begin, end, false, []byte{}}
+			downloadGoroutineDatas = append(downloadGoroutineDatas, data)
 		}
-		data := downloadGoroutineData{begin, end, false, []byte{}}
-		downloadGoroutineDatas = append(downloadGoroutineDatas, data)
+	} else if httpDownLoadStrategy == HttpLargeFileParallelDownload {
+		for i = 0; i < fileRange.FileContentLength; i += DownloadSizePerThread {
+			begin = i
+			end = i + DownloadSizePerThread - 1
+			if end >= fileRange.FileContentLength {
+				end = fileRange.FileContentLength - 1
+			}
+
+			if begin == end {
+				continue
+			}
+
+			data := downloadGoroutineData{begin, end, false, []byte{}}
+			downloadGoroutineDatas = append(downloadGoroutineDatas, data)
+		}
 	}
 
 	return downloadGoroutineDatas
 }
 
 func chooseDownloadStrategy(fileSize int64) int {
-	if fileSize < 5*MibBytes {
+	if fileSize < VerySmallFileSize {
 		return HttpDownload
-	} else if fileSize >= 5*MibBytes && fileSize < 50*MibBytes {
+	} else if fileSize >= VerySmallFileSize && fileSize < SmallFileSize {
 		return HttpSmallFileParallelDownload
-	} else if fileSize >= 50*MibBytes {
+	} else if fileSize >= SmallFileSize {
 		return HttpLargeFileParallelDownload
 	} else {
 		panic(fmt.Sprintf("wrong file size:%d", fileSize))
