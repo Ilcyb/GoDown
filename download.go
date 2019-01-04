@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -17,6 +18,10 @@ const (
 
 	//并发下载数量
 	DownloadThreadNum = 8
+
+	HttpDownload                  = 0
+	HttpSmallFileParallelDownload = 1
+	HttpLargeFileParallelDownload = 2
 )
 
 func getFileNameFromURL(resUrl string) string {
@@ -37,6 +42,7 @@ func Download(resUrl string) (string, error) {
 		return "", err
 	}
 
+	// 创建文件
 	fileName := getFileNameFromURL(resUrl)
 	file, err := createFileWithSize(fileName, fileRange.FileContentLength)
 	if err != nil {
@@ -44,11 +50,22 @@ func Download(resUrl string) (string, error) {
 	}
 	defer file.Close()
 
+	// 选择下载策略
+	downloadStrategy := chooseDownloadStrategy(fileRange.FileContentLength)
+
+	// 显示下载进度
 	displaySize := GetDisplaySizeUnit(fileRange.FileContentLength)
-	processBarData := DownloadProcessBar{fileName, displaySize, fileRange.FileContentLength, 0, "=", 50}
+	processBarData := DownloadProcessBar{fileName, displaySize, fileRange.FileContentLength, 0, "=", 50, time.Now().Unix()}
 	go DisplayProcessBar(&processBarData)
 
-	parallelDownload(resUrl, file, fileRange, &processBarData)
+	switch downloadStrategy {
+	case HttpDownload:
+		parallelDownload(resUrl, file, fileRange, &processBarData)
+	case HttpSmallFileParallelDownload:
+		parallelDownload(resUrl, file, fileRange, &processBarData)
+	case HttpLargeFileParallelDownload:
+		parallelDownload(resUrl, file, fileRange, &processBarData)
+	}
 
 	//resp, err := http.Get(resUrl)
 	//if err != nil {
@@ -148,6 +165,7 @@ func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadP
 	}()
 
 	downloadCompleteWait.Wait()
+	DisplayDownloadComplete(*downloadProcessBar)
 }
 
 func downloadGoroutine(resUrl string, data downloadGoroutineData) (downloadGoroutineData, error) {
@@ -199,4 +217,16 @@ func getGoroutineDatas(fileRange FileRange) []downloadGoroutineData {
 	}
 
 	return downloadGoroutineDatas
+}
+
+func chooseDownloadStrategy(fileSize int64) int {
+	if fileSize < 5*MibBytes {
+		return HttpDownload
+	} else if fileSize >= 5*MibBytes && fileSize < 50*MibBytes {
+		return HttpSmallFileParallelDownload
+	} else if fileSize >= 50*MibBytes {
+		return HttpLargeFileParallelDownload
+	} else {
+		panic(fmt.Sprintf("wrong file size:%d", fileSize))
+	}
 }

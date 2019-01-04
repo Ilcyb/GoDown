@@ -35,5 +35,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("%s\n", fileName)
+	fmt.Printf("\n%s\n", fileName)
 }

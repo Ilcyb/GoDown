@@ -13,6 +13,7 @@ type DownloadProcessBar struct {
 	CompleteSize int64
 	FillChar     string
 	Width        int
+	StartTime    int64
 }
 
 type DisplaySize struct {
@@ -26,18 +27,25 @@ func displayStatus(bar DownloadProcessBar) {
 }
 
 func displayProcessLine(bar DownloadProcessBar) {
-	processWidth := int(float32(float64(bar.CompleteSize)/float64(bar.TotalSize)) * float32(bar.Width))
+	processPercent := float32(float64(bar.CompleteSize) / float64(bar.TotalSize))
+	processWidth := int(processPercent * float32(bar.Width))
 	process := strings.Repeat(bar.FillChar, processWidth)
 	empty := strings.Repeat(" ", bar.Width-processWidth)
-	fmt.Printf("[%s>%s]\r", process, empty)
+	now := time.Now().Unix()
+	fmt.Printf("%s %.1f%%[%s>%s] %.2f%s %ds\r", bar.Name, processPercent*100, process, empty, bar.Size.Size, bar.Size.Unit, now-bar.StartTime)
 }
 
 func DisplayProcessBar(bar *DownloadProcessBar) {
-	displayStatus(*bar)
+	//displayStatus(*bar)
 	for (*bar).CompleteSize < (*bar).TotalSize {
 		displayProcessLine(*bar)
 		time.Sleep(time.Second)
 	}
+}
+
+func DisplayDownloadComplete(bar DownloadProcessBar) {
+	bar.CompleteSize = bar.TotalSize
+	displayProcessLine(bar)
 }
 
 func GetDisplaySizeUnit(bytesSize int64) DisplaySize {
