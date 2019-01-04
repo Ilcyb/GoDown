@@ -22,6 +22,9 @@ const (
 	//每个 download goroutine 所需要下载的大小
 	DownloadSizePerThread = MibBytes
 
+	//最大重试次数
+	MaxRetry = 3
+
 	VerySmallFileSize = 5 * MibBytes
 	SmallFileSize     = 10 * MibBytes
 
@@ -116,9 +119,10 @@ type downloadGoroutineData struct {
 	end      int64
 	complete bool
 	content  []byte
+	retry    int
 }
 
-func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *DownloadProcessBar, downloadStrategy int) {
+func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *DownloadProcessBar, downloadStrategy int) error {
 
 	needDownloadDatas := getGoroutineDatas(fileRange, downloadStrategy)
 	downloadChain := make(chan downloadGoroutineData, DownloadThreadNum)
@@ -143,9 +147,15 @@ func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadP
 			go func() {
 				downloadTask, err := downloadGoroutine(resUrl, downloadTask)
 				if err != nil {
-					panic(err.Error())
+					downloadTask.retry++
+					if downloadTask.retry > MaxRetry {
+						os.Stderr.WriteString("network timeout")
+						os.Exit(1)
+					}
+					downloadChain <- downloadTask
+				} else {
+					downloadedChain <- downloadTask
 				}
-				downloadedChain <- downloadTask
 			}()
 		}
 	}()
@@ -172,6 +182,8 @@ func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadP
 
 	downloadCompleteWait.Wait()
 	DisplayDownloadComplete(*downloadProcessBar)
+
+	return nil
 }
 
 func downloadGoroutine(resUrl string, data downloadGoroutineData) (downloadGoroutineData, error) {
@@ -218,7 +230,7 @@ func getGoroutineDatas(fileRange FileRange, httpDownLoadStrategy int) []download
 				begin = i * pSize
 				end = begin + pSize - 1
 			}
-			data := downloadGoroutineData{begin, end, false, []byte{}}
+			data := downloadGoroutineData{begin, end, false, []byte{}, 0}
 			downloadGoroutineDatas = append(downloadGoroutineDatas, data)
 		}
 	} else if httpDownLoadStrategy == HttpLargeFileParallelDownload {
@@ -233,9 +245,11 @@ func getGoroutineDatas(fileRange FileRange, httpDownLoadStrategy int) []download
 				continue
 			}
 
-			data := downloadGoroutineData{begin, end, false, []byte{}}
+			data := downloadGoroutineData{begin, end, false, []byte{}, 0}
 			downloadGoroutineDatas = append(downloadGoroutineDatas, data)
 		}
+	} else if httpDownLoadStrategy == HttpDownload {
+		downloadGoroutineDatas = append(downloadGoroutineDatas, downloadGoroutineData{0, fileRange.FileContentLength - 1, false, []byte{}, 0})
 	}
 
 	return downloadGoroutineDatas

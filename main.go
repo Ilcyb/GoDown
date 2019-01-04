@@ -31,7 +31,7 @@ func main() {
 
 	fileName, err := Download(args.url)
 	if err != nil {
-		fmt.Println(err)
+		os.Stderr.WriteString(err.Error())
 		os.Exit(1)
 	}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,8 +23,16 @@ func GetFileRange(url string) (FileRange, error) {
 		return fileRange, err
 	}
 
+	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
+		return fileRange, errors.New("cannot find downloadable resource")
+	}
+
 	header := resp.Header
-	fileRange.FileContentLength, _ = strconv.ParseInt(header["Content-Length"][0], 10, 64)
+	if contentLength, ok := header["Content-Length"]; ok {
+		fileRange.FileContentLength, _ = strconv.ParseInt(contentLength[0], 10, 64)
+	} else {
+		return fileRange, errors.New("unsupported resource")
+	}
 
 	// 查看head请求的响应头中是否有accept-ranges字段，如果有该字段则该资源必定支持range属性
 	if acceptRange, ok := header["Accept-Ranges"]; ok {
