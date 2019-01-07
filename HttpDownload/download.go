@@ -1,6 +1,7 @@
-package main
+package HttpDownload
 
 import (
+	"GoDown/common"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -14,19 +15,19 @@ import (
 
 const (
 	//MaxMemoryUsage 最大内存占用
-	MaxMemoryUsage = 10 * MibBytes
+	MaxMemoryUsage = 10 * common.MibBytes
 
 	//并发下载数量
 	DownloadThreadNum = 10
 
 	//每个 download goroutine 所需要下载的大小
-	DownloadSizePerThread = MibBytes
+	DownloadSizePerThread = common.MibBytes
 
 	//最大重试次数
 	MaxRetry = 3
 
-	VerySmallFileSize = 5 * MibBytes
-	SmallFileSize     = 10 * MibBytes
+	VerySmallFileSize = 5 * common.MibBytes
+	SmallFileSize     = 10 * common.MibBytes
 
 	HttpDownload                  = 0
 	HttpSmallFileParallelDownload = 1
@@ -63,9 +64,9 @@ func Download(resUrl string) (string, error) {
 	downloadStrategy := chooseDownloadStrategy(fileRange.FileContentLength)
 
 	// 显示下载进度
-	displaySize := GetDisplaySizeUnit(fileRange.FileContentLength)
-	processBarData := DownloadProcessBar{fileName, displaySize, fileRange.FileContentLength, 0, "=", 50, time.Now().Unix()}
-	go DisplayProcessBar(&processBarData)
+	displaySize := common.GetDisplaySizeUnit(fileRange.FileContentLength)
+	processBarData := common.DownloadProcessBar{fileName, displaySize, fileRange.FileContentLength, 0, "=", 50, time.Now().Unix()}
+	go common.DisplayProcessBar(&processBarData)
 
 	switch downloadStrategy {
 	case HttpDownload:
@@ -122,7 +123,7 @@ type downloadGoroutineData struct {
 	retry    int
 }
 
-func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *DownloadProcessBar, downloadStrategy int) error {
+func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadProcessBar *common.DownloadProcessBar, downloadStrategy int) error {
 
 	needDownloadDatas := getGoroutineDatas(fileRange, downloadStrategy)
 	downloadChain := make(chan downloadGoroutineData, DownloadThreadNum)
@@ -181,7 +182,7 @@ func parallelDownload(resUrl string, fd *os.File, fileRange FileRange, downloadP
 	}()
 
 	downloadCompleteWait.Wait()
-	DisplayDownloadComplete(*downloadProcessBar)
+	common.DisplayDownloadComplete(*downloadProcessBar)
 
 	return nil
 }

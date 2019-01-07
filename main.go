@@ -1,6 +1,7 @@
 package main
 
 import (
+	"GoDown/HttpDownload"
 	"flag"
 	"fmt"
 	"os"
@@ -29,7 +30,7 @@ func parseArgs() DownloadArguments {
 func main() {
 	args := parseArgs()
 
-	fileName, err := Download(args.url)
+	fileName, err := HttpDownload.Download(args.url)
 	if err != nil {
 		os.Stderr.WriteString(err.Error())
 		os.Exit(1)
