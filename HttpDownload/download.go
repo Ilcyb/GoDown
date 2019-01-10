@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -35,14 +34,11 @@ const (
 )
 
 func getFileNameFromURL(resUrl string) string {
-	resUrl, _ = url.QueryUnescape(resUrl)
-	hasSlash := strings.Contains(resUrl, "/")
-	if !hasSlash {
-		return resUrl
+	rUrl, _ := url.Parse(resUrl)
+	fileName := rUrl.Path
+	if fileName[0] == '/' {
+		fileName = fileName[1:]
 	}
-	urlSegments := strings.Split(resUrl, "/")
-	fileName := urlSegments[len(urlSegments)-1]
-
 	return fileName
 }
 
@@ -221,7 +217,7 @@ func getGoroutineDatas(fileRange FileRange, httpDownLoadStrategy int) []download
 	var end int64
 	var i int64
 
-	if httpDownLoadStrategy == HttpSmallFileParallelDownload {
+	if httpDownLoadStrategy == HttpSmallFileParallelDownload && fileRange.SupportRange {
 		pSize := fileRange.FileContentLength / DownloadThreadNum
 		for i = 0; i <= DownloadThreadNum; i++ {
 			if i == DownloadThreadNum {
@@ -234,7 +230,7 @@ func getGoroutineDatas(fileRange FileRange, httpDownLoadStrategy int) []download
 			data := downloadGoroutineData{begin, end, false, []byte{}, 0}
 			downloadGoroutineDatas = append(downloadGoroutineDatas, data)
 		}
-	} else if httpDownLoadStrategy == HttpLargeFileParallelDownload {
+	} else if httpDownLoadStrategy == HttpLargeFileParallelDownload && fileRange.SupportRange {
 		for i = 0; i < fileRange.FileContentLength; i += DownloadSizePerThread {
 			begin = i
 			end = i + DownloadSizePerThread - 1
@@ -249,7 +245,7 @@ func getGoroutineDatas(fileRange FileRange, httpDownLoadStrategy int) []download
 			data := downloadGoroutineData{begin, end, false, []byte{}, 0}
 			downloadGoroutineDatas = append(downloadGoroutineDatas, data)
 		}
-	} else if httpDownLoadStrategy == HttpDownload {
+	} else if httpDownLoadStrategy == HttpDownload || fileRange.SupportRange == false {
 		downloadGoroutineDatas = append(downloadGoroutineDatas, downloadGoroutineData{0, fileRange.FileContentLength - 1, false, []byte{}, 0})
 	}
 
