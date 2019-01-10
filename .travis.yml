@@ -6,4 +6,4 @@ go:
 install: true
 
 script:
-  - go test GoDown/HttpDownload -v
+  - go test -v $(go list ./... | grep -v vendor)
