@@ -38,6 +38,12 @@ func TestGetFileNameFromUrl(t *testing.T) {
 	if filename != "this is a resource.jpg" {
 		t.Error(filename)
 	}
+
+	url = "https://godown.me/this/is/test/resource.jpg?q=1"
+	filename = getFileNameFromURL(url)
+	if filename != "resource.jpg" {
+		t.Error(filename)
+	}
 }
 
 func TestCreateFileWithSize(t *testing.T) {

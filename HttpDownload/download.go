@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"strings"
 )
 
 const (
@@ -35,10 +36,9 @@ const (
 
 func getFileNameFromURL(resUrl string) string {
 	rUrl, _ := url.Parse(resUrl)
-	fileName := rUrl.Path
-	if fileName[0] == '/' {
-		fileName = fileName[1:]
-	}
+	filePath := rUrl.Path
+	filePaths := strings.Split(filePath, "/")
+	fileName := filePaths[len(filePaths) - 1]
 	return fileName
 }
 
